@@ -12,8 +12,29 @@ data "aws_instances" "public" {
   ]
 
 }
-resource "time_sleep" "wait" {
-  create_duration = "30s"
+
+data "aws_instances" "public_web" {
+
+  filter {
+    name   = "instance-state-name"
+    values = ["running"]
+
+    }
+
+  filter {
+    name = "tag:Name"
+    values = [
+        "terraform-0",
+        "terraform-1"
+    ]
+  }
+ 
+  depends_on = [
+    aws_instance.ansible_server,
+    aws_instance.web[0],
+    aws_instance.web[1]
+  ]
+
 }
 
 data "aws_instances" "private" {
@@ -42,18 +63,15 @@ output "public_ips" {
 
 
 resource "local_file" "example_file" {
-  filename = "${path.module}/hosts"
+  filename = "${path.module}/web"
   
   # 리스트 요소들이 문자열이어야 하며, join으로 연결
-  content  = "\n ${join("\n", data.aws_instances.public.public_ips)}"
+  content  = "[web] \n ${join("\n", data.aws_instances.public_web.public_ips)}"
 }
 
 # web파일 넣기
 
 
-resource "time_sleep" "wait3" {
-  create_duration = "30s"
-}
 
 resource "terraform_data" "web" {
   connection {
@@ -63,18 +81,28 @@ resource "terraform_data" "web" {
     host = aws_instance.ansible_server.public_ip
   }
 
+    provisioner "file" {
+        source = "${path.module}/web"
+        destination = "/home/ubuntu/web"
 
-  provisioner "file" {
-    source = "${path.module}/hosts"
-    destination = "/home/ubuntu/hosts"
-
-    connection {
-        sudo = true
     }
-  }
+
+    provisioner "remote-exec" {
+        inline = [
+            "sudo mv /home/ubuntu/web /etc/ansible/hosts"
+        ]
+    }
+
+
 
   triggers_replace = [
     aws_instance.ansible_server.public_ip
+  ]
+
+  depends_on = [
+    aws_instance.ansible_server,
+    aws_instance.web[0],
+    aws_instance.web[1]
   ]
 
 }
